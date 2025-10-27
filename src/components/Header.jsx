@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-export default function Header({ loggedIn, user, openLogin, openSignup, openProfile, openAdmin, logout }) {
+export default function Header({ loggedIn, user, openLogin, openSignup, openProfile, logout }) {
     const [mobileOpen, setMobileOpen] = useState(false)
 
     return (
@@ -61,14 +61,6 @@ export default function Header({ loggedIn, user, openLogin, openSignup, openProf
                                 >
                                     Profile
                                 </button>
-                                {user?.type === 'admin' && (
-                                    <button
-                                        onClick={(e) => { e.preventDefault(); openAdmin(); }}
-                                        className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                                    >
-                                        Admin Panel
-                                    </button>
-                                )}
                                 <button
                                     onClick={(e) => { e.preventDefault(); logout(); }}
                                     className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
@@ -106,7 +98,6 @@ export default function Header({ loggedIn, user, openLogin, openSignup, openProf
                             <>
                                 <button onClick={openProfile} className="w-full text-left py-2">Dashboard</button>
                                 <button onClick={openProfile} className="w-full text-left py-2">Profile</button>
-                                {user?.type === 'admin' && <button onClick={openAdmin} className="w-full text-left py-2">Admin Panel</button>}
                                 <button onClick={logout} className="w-full text-left py-2 text-red-600">Logout</button>
                             </>
                         )}
