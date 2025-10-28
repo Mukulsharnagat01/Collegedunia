@@ -9,6 +9,7 @@ export default function FeaturedColleges() {
             placement: '95%',
             badge: 'Top Ranked',
             img: 'https://via.placeholder.com/300x200/4F46E5/FFFFFF?text=IIT+Delhi',
+
         },
         {
             name: 'All India Institute of Medical Sciences',

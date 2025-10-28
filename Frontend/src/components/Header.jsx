@@ -1,7 +1,18 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 
 export default function Header({ loggedIn, user, openLogin, openSignup, openProfile, logout }) {
     const [mobileOpen, setMobileOpen] = useState(false)
+
+    // Ordered sections for the navbar. Change order here to rearrange items.
+    const sections = [
+        { label: 'Home', href: '/' },
+        { label: 'Colleges', href: '/#colleges' },
+        { label: 'Courses', href: '/#courses' },
+        { label: 'Exams', href: '/#exams' },
+        { label: 'Reviews', href: '/#reviews' },
+        { label: 'About', href: '/#about' },
+    ]
 
     return (
         <header className="fixed top-0 left-0 right-0 z-50 bg-transparent transition-all duration-300">
@@ -13,13 +24,11 @@ export default function Header({ loggedIn, user, openLogin, openSignup, openProf
 
                 {/* Desktop Menu */}
                 <ul className="hidden md:flex space-x-8">
-                    {['Home', 'Colleges', 'Courses', 'Exams', 'Reviews', 'About'].map((item) => (
-                        <li key={item}>
-                            <a
-                                href={`#${item.toLowerCase()}`}
-                                className="text-white hover:text-indigo-300 transition drop-shadow"
-                            >
-                                {item}
+                    {sections.map((s) => (
+                        <li key={s.label}>
+                            {/* Use <a> to allow anchor navigation (href includes /#...) */}
+                            <a href={s.href} className="text-white hover:text-indigo-300 transition drop-shadow">
+                                {s.label}
                             </a>
                         </li>
                     ))}
@@ -29,6 +38,7 @@ export default function Header({ loggedIn, user, openLogin, openSignup, openProf
                 <div className="hidden md:flex items-center space-x-4">
                     {!loggedIn ? (
                         <>
+                            <a href="/admin/login" className="text-white hover:text-indigo-300 font-medium drop-shadow mr-4">Admin</a>
                             <button
                                 onClick={openLogin}
                                 className="text-white hover:text-indigo-300 font-medium drop-shadow"
@@ -82,15 +92,14 @@ export default function Header({ loggedIn, user, openLogin, openSignup, openProf
             {mobileOpen && (
                 <div className="md:hidden bg-white/95 backdrop-blur-sm border-t">
                     <ul className="flex flex-col p-4 space-y-2">
-                        {['Home', 'Colleges', 'Courses', 'Exams', 'Reviews', 'About'].map((item) => (
-                            <li key={item}>
-                                <a href={`#${item.toLowerCase()}`} className="block py-2 text-gray-800 hover:text-indigo-600">
-                                    {item}
-                                </a>
+                        {sections.map((s) => (
+                            <li key={s.label}>
+                                <a href={s.href} className="block py-2 text-gray-800 hover:text-indigo-600">{s.label}</a>
                             </li>
                         ))}
                         {!loggedIn ? (
                             <>
+                                <a href="/admin/login" className="w-full text-left py-2 text-indigo-600">Admin</a>
                                 <button onClick={openLogin} className="w-full text-left py-2 text-indigo-600">Login</button>
                                 <button onClick={openSignup} className="w-full text-left py-2 text-indigo-600">Sign Up</button>
                             </>
