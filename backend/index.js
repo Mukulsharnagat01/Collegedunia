@@ -3,121 +3,214 @@ import cors from 'cors'
 import cookieParser from 'cookie-parser'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
+import mongoose from 'mongoose'
 import dotenv from 'dotenv'
 
 dotenv.config()
 
-const { sign, verify } = jwt
-const { compare, hashSync } = bcrypt
-
 const app = express()
 const PORT = process.env.PORT || 4001
 
-const ACCESS_SECRET = process.env.ACCESS_SECRET || 'dev-access-secret'
-const REFRESH_SECRET = process.env.REFRESH_SECRET || 'dev-refresh-secret'
+// --- MONGODB CONNECT ---
+const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://admin:admin123@clusterone.mym38ni.mongodb.net/collegedunia?retryWrites=true&w=majority'
 
-// CORS
+mongoose.connect(MONGO_URI)
+    .then(() => console.log('MongoDB Connected'))
+    .catch(err => console.error('MongoDB Error:', err))
+
+// --- SCHEMAS ---
+const userSchema = new mongoose.Schema({
+    name: String,
+    email: { type: String, unique: true, lowercase: true },
+    passwordHash: String,
+    type: { type: String, default: 'student' },
+    phone: String,
+    city: String,
+    course: String
+}, { timestamps: true })
+
+const collegeSchema = new mongoose.Schema({
+    name: String,
+    location: String,
+    rating: Number,
+    fees: Number,
+    image: String
+}, { timestamps: true })
+
+const User = mongoose.model('User', userSchema)
+const College = mongoose.model('College', collegeSchema)
+
+// --- MIDDLEWARE ---
 app.use(cors({
     origin: 'http://localhost:5173',
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization']
 }))
-app.options('*', cors())
-
 app.use(json())
 app.use(cookieParser())
 
-// In-memory DB
-const users = [
-    { id: '1', email: 'admin@site', name: 'Admin User', passwordHash: hashSync('admin', 8), type: 'admin' },
-    { id: '2', email: 'user@example.com', name: 'Test User', passwordHash: hashSync('user', 8), type: 'student' }
-]
+const { sign, verify } = jwt
+const { hashSync, compare } = bcrypt
+
+const ACCESS_SECRET = process.env.ACCESS_SECRET || 'dev-access-secret'
+const REFRESH_SECRET = process.env.REFRESH_SECRET || 'dev-refresh-secret'
+
 const refreshTokens = new Set()
 
+// --- JWT HELPERS ---
 const generateAccessToken = (user) => sign(
-    { sub: user.id, type: user.type, email: user.email, name: user.name },
+    { sub: user._id, type: user.type, email: user.email, name: user.name },
     ACCESS_SECRET,
     { expiresIn: '15m' }
 )
 
-const generateRefreshToken = (user) => sign({ sub: user.id }, REFRESH_SECRET, { expiresIn: '7d' })
+const generateRefreshToken = (user) => sign(
+    { sub: user._id },
+    REFRESH_SECRET,
+    { expiresIn: '7d' }
+)
 
-// LOGIN
-app.post('/api/v1/auth/login', async (req, res) => {
-    const { email, password } = req.body || {}
-    if (!email || !password) return res.status(400).json({ error: 'Missing credentials' })
+// --- AUTH MIDDLEWARE ---
+const authMiddleware = async (req, res, next) => {
+    const token = req.headers.authorization?.split(' ')[1]
+    if (!token) return res.status(401).json({ error: 'Missing token' })
 
-    const user = users.find(u => u.email === email)
-    if (!user) return res.status(401).json({ error: 'Invalid credentials' })
+    try {
+        const payload = verify(token, ACCESS_SECRET)
+        const user = await User.findById(payload.sub).select('-passwordHash')
+        if (!user) throw new Error('User not found')
+        req.user = user
+        next()
+    } catch (e) {
+        return res.status(401).json({ error: 'Invalid or expired token' })
+    }
+}
 
-    const ok = await compare(password, user.passwordHash)
-    if (!ok) return res.status(401).json({ error: 'Invalid credentials' })
+const adminOnly = (req, res, next) => {
+    if (req.user.type !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' })
+    }
+    next()
+}
 
-    const accessToken = generateAccessToken(user)
-    const refreshToken = generateRefreshToken(user)
-    refreshTokens.add(refreshToken)
-
-    res.cookie('refreshToken', refreshToken, {
-        httpOnly: true, secure: false, sameSite: 'lax', maxAge: 7 * 24 * 3600 * 1000
-    })
-
-    return res.json({
-        user: { id: user.id, email: user.email, name: user.name, type: user.type },
-        accessToken
-    })
+// --- AUTO-CREATE ADMIN ON STARTUP ---
+User.findOne({ email: 'admin@site' }).then(async (user) => {
+    if (!user) {
+        const passwordHash = hashSync('admin', 8)
+        await User.create({
+            name: 'Admin User',
+            email: 'admin@site',
+            passwordHash,
+            type: 'admin'
+        })
+        console.log('Admin created: admin@site / admin')
+    }
 })
+
+// --- ROUTES ---
 
 // SIGNUP
 app.post('/api/v1/auth/signup', async (req, res) => {
-    const { name, email, password } = req.body || {}
-    if (!name || !email || !password) return res.status(400).json({ error: 'All fields required' })
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(email)) return res.status(400).json({ error: 'Invalid email' })
-
-    const exists = users.find(u => u.email.toLowerCase() === email.toLowerCase())
-    if (exists) return res.status(409).json({ error: 'Email already registered' })
-
-    const passwordHash = hashSync(password, 8)
-    const newUser = {
-        id: String(users.length + 1),
-        email: email.toLowerCase(),
-        name,
-        passwordHash,
-        type: 'student'
+    const { name, email, password, phone, city, course } = req.body
+    if (!name || !email || !password) {
+        return res.status(400).json({ error: 'Name, email, and password required' })
     }
 
-    users.push(newUser)
+    try {
+        const exists = await User.findOne({ email: email.toLowerCase() })
+        if (exists) return res.status(409).json({ error: 'Email already registered' })
 
-    const accessToken = generateAccessToken(newUser)
-    const refreshToken = generateRefreshToken(newUser)
-    refreshTokens.add(refreshToken)
+        const passwordHash = hashSync(password, 8)
+        const user = await User.create({
+            name,
+            email: email.toLowerCase(),
+            passwordHash,
+            phone,
+            city,
+            course
+        })
 
-    res.cookie('refreshToken', refreshToken, {
-        httpOnly: true, secure: false, sameSite: 'lax', maxAge: 7 * 24 * 3600 * 1000
-    })
+        const accessToken = generateAccessToken(user)
+        const refreshToken = generateRefreshToken(user)
+        refreshTokens.add(refreshToken)
 
-    return res.status(201).json({
-        user: { id: newUser.id, email: newUser.email, name: newUser.name, type: newUser.type },
-        accessToken
-    })
+        res.cookie('refreshToken', refreshToken, {
+            httpOnly: true,
+            secure: false,
+            sameSite: 'lax',
+            maxAge: 7 * 24 * 60 * 60 * 1000
+        })
+
+        res.status(201).json({
+            user: {
+                id: user._id,
+                email: user.email,
+                name: user.name,
+                type: user.type
+            },
+            accessToken
+        })
+    } catch (err) {
+        res.status(500).json({ error: 'Signup failed' })
+    }
 })
 
-// REFRESH
+// LOGIN
+app.post('/api/v1/auth/login', async (req, res) => {
+    const { email, password } = req.body
+    if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password required' })
+    }
+
+    try {
+        const user = await User.findOne({ email: email.toLowerCase() })
+        if (!user) return res.status(401).json({ error: 'Invalid credentials' })
+
+        const valid = await compare(password, user.passwordHash)
+        if (!valid) return res.status(401).json({ error: 'Invalid credentials' })
+
+        const accessToken = generateAccessToken(user)
+        const refreshToken = generateRefreshToken(user)
+        refreshTokens.add(refreshToken)
+
+        res.cookie('refreshToken', refreshToken, {
+            httpOnly: true,
+            secure: false,
+            sameSite: 'lax',
+            maxAge: 7 * 24 * 60 * 60 * 1000
+        })
+
+        res.json({
+            user: {
+                id: user._id,
+                email: user.email,
+                name: user.name,
+                type: user.type
+            },
+            accessToken
+        })
+    } catch (err) {
+        res.status(500).json({ error: 'Login failed' })
+    }
+})
+
+// REFRESH TOKEN
 app.post('/api/v1/auth/refresh', (req, res) => {
     const token = req.cookies.refreshToken
-    if (!token || !refreshTokens.has(token)) return res.status(401).json({ error: 'Invalid refresh token' })
+    if (!token || !refreshTokens.has(token)) {
+        return res.status(401).json({ error: 'Invalid refresh token' })
+    }
 
     try {
         const payload = verify(token, REFRESH_SECRET)
-        const user = users.find(u => u.id === payload.sub)
-        if (!user) return res.status(401).json({ error: 'User not found' })
-
-        const accessToken = generateAccessToken(user)
-        return res.json({ accessToken })
+        User.findById(payload.sub).then(user => {
+            if (!user) throw new Error()
+            const newAccessToken = generateAccessToken(user)
+            res.json({ accessToken: newAccessToken })
+        })
     } catch (e) {
-        return res.status(401).json({ error: 'Invalid refresh token' })
+        res.status(401).json({ error: 'Invalid refresh token' })
     }
 })
 
@@ -126,43 +219,67 @@ app.post('/api/v1/auth/logout', (req, res) => {
     const token = req.cookies.refreshToken
     if (token) refreshTokens.delete(token)
     res.clearCookie('refreshToken')
-    return res.json({ ok: true })
+    res.json({ ok: true })
 })
 
-// MIDDLEWARES
-const authMiddleware = (req, res, next) => {
-    const header = req.headers.authorization
-    if (!header) return res.status(401).json({ error: 'Missing auth' })
-    const token = header.split(' ')[1]
-    try {
-        req.user = verify(token, ACCESS_SECRET)
-        next()
-    } catch (e) {
-        return res.status(401).json({ error: 'Invalid token' })
-    }
-}
-
-const adminOnly = (req, res, next) => {
-    if (req.user?.type !== 'admin') return res.status(403).json({ error: 'Admin only' })
-    next()
-}
-
-// ME
-app.get('/api/v1/auth/me', authMiddleware, (req, res) => {
-    const u = users.find(x => x.id === req.user.sub)
-    if (!u) return res.status(404).json({ error: 'User not found' })
-    return res.json({ id: u.id, email: u.email, name: u.name, type: u.type })
-})
-
-// ADMIN STATS
-app.get('/api/v1/admin/stats', authMiddleware, adminOnly, (req, res) => {
-    return res.json({
-        totalColleges: 1204,
-        pendingReviews: 32,
-        newLeadsToday: 18,
-        featuredColleges: 5,
-        traffic: []
+// ME (GET CURRENT USER)
+app.get('/api/v1/auth/me', authMiddleware, async (req, res) => {
+    res.json({
+        id: req.user._id,
+        email: req.user.email,
+        name: req.user.name,
+        type: req.user.type
     })
 })
 
-app.listen(PORT, () => console.log(`Backend running at http://localhost:${PORT}`))
+// --- ADMIN CRUD: COLLEGES ---
+app.get('/api/v1/admin/colleges', authMiddleware, adminOnly, async (req, res) => {
+    try {
+        const colleges = await College.find().sort({ createdAt: -1 })
+        res.json(colleges)
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch colleges' })
+    }
+})
+
+app.post('/api/v1/admin/colleges', authMiddleware, adminOnly, async (req, res) => {
+    try {
+        const college = await College.create(req.body)
+        res.status(201).json(college)
+    } catch (err) {
+        res.status(400).json({ error: 'Invalid data' })
+    }
+})
+
+app.put('/api/v1/admin/colleges/:id', authMiddleware, adminOnly, async (req, res) => {
+    try {
+        const college = await College.findByIdAndUpdate(
+            req.params.id,
+            req.body,
+            { new: true, runValidators: true }
+        )
+        if (!college) return res.status(404).json({ error: 'Not found' })
+        res.json(college)
+    } catch (err) {
+        res.status(400).json({ error: 'Update failed' })
+    }
+})
+
+app.delete('/api/v1/admin/colleges/:id', authMiddleware, adminOnly, async (req, res) => {
+    try {
+        const result = await College.findByIdAndDelete(req.params.id)
+        if (!result) return res.status(404).json({ error: 'Not found' })
+        res.json({ ok: true })
+    } catch (err) {
+        res.status(500).json({ error: 'Delete failed' })
+    }
+})
+
+// --- HEALTH CHECK ---
+app.get('/api/v1/health', (req, res) => {
+    res.json({ status: 'OK', mongodb: mongoose.connection.readyState === 1 })
+})
+
+app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`)
+})
