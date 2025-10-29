@@ -1,22 +1,26 @@
+import { useState, useEffect } from 'react'
+import api from '../lib/api'
+
 export default function PopularCourses() {
-    const courses = [
-        { name: 'B.Tech Computer Science', colleges: '1,200+', img: 'https://via.placeholder.com/300x200/6366F1/FFFFFF?text=CS' },
-        { name: 'MBBS', colleges: '850+', img: 'https://via.placeholder.com/300x200/10B981/FFFFFF?text=MBBS' },
-        { name: 'MBA', colleges: '2,100+', img: 'https://via.placeholder.com/300x200/F59E0B/FFFFFF?text=MBA' },
-    ]
+    const [courses, setCourses] = useState([])
+
+    useEffect(() => {
+        api.get('/courses').then(res => setCourses(res.data.slice(0, 6)))
+    }, [])
 
     return (
-        <section id="courses" className="py-16 bg-white">
+        <section className="py-16">
             <div className="max-w-7xl mx-auto px-4">
-                <h2 className="text-3xl font-bold text-center mb-10">Popular Courses</h2>
+                <h2 className="text-3xl font-bold text-center mb-12">Popular Courses</h2>
                 <div className="grid md:grid-cols-3 gap-8">
-                    {courses.map((c, i) => (
-                        <div key={i} className="bg-gray-50 rounded-lg overflow-hidden shadow">
-                            <img src={c.img} alt={c.name} className="w-full h-40 object-cover" />
-                            <div className="p-4">
-                                <h3 className="font-semibold text-lg">{c.name}</h3>
-                                <p className="text-sm text-gray-600">{c.colleges} Colleges</p>
-                                <button className="mt-3 text-indigo-600 hover:underline">Explore →</button>
+                    {courses.map(course => (
+                        <div key={course._id} className="bg-white rounded-lg shadow-md p-6">
+                            <h3 className="text-xl font-semibold mb-2">{course.name}</h3>
+                            <p className="text-gray-600 mb-4">{course.collegeId?.name || 'Top College'}</p>
+                            <p className="text-sm text-gray-500 mb-4">{course.description}</p>
+                            <div className="flex justify-between">
+                                <span className="text-indigo-600 font-semibold">₹{course.fees?.toLocaleString()}</span>
+                                <span className="text-sm text-gray-500">{course.duration}</span>
                             </div>
                         </div>
                     ))}

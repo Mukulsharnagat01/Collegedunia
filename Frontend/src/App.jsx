@@ -59,21 +59,19 @@ export default function App() {
     }
 
     // REAL SIGNUP
-    const signup = async (name, email, password, confirm) => {
-        if (password !== confirm) return alert('Passwords do not match')
-        if (!name || !email || !password) return alert('All fields required')
-
+    const signup = async (name, email, password, confirmPassword, type) => {
+        if (password !== confirmPassword) {
+            alert('Passwords do not match')
+            return
+        }
         try {
-            const resp = await api.post('/auth/signup', { name, email, password })
-            const { user, accessToken } = resp.data
-
+            const resp = await api.post('/auth/register', { name, email, password, type })
+            const { user } = resp.data
             const userWithAvatar = {
                 ...user,
                 avatar: `https://ui-avatars.com/api/?background=4f46e5&color=fff&name=${encodeURIComponent(user.name)}`
             }
-
             localStorage.setItem('collegedunia_user', JSON.stringify(userWithAvatar))
-            setAccessToken(accessToken)
             setUser(userWithAvatar)
             setLoggedIn(true)
             setShowSignup(false)
