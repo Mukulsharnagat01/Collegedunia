@@ -95,7 +95,7 @@ const Exam = mongoose.model('Exam', examSchema)
 
 // --- MIDDLEWARE ---
 app.use(cors({
-    origin: 'https://collegenest.onrender.com',
+    origin: process.env.VITE_FRONTEND_URL,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
