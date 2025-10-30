@@ -1,35 +1,33 @@
-// seed-admin.js
 import mongoose from 'mongoose'
-import bcrypt from 'bcryptjs'
 import dotenv from 'dotenv'
 dotenv.config()
 
-const MONGO_URI = process.env.MONGO_URI
+// Paste your schemas here (User, College, Course, Exam)
 
-const userSchema = new mongoose.Schema({
-    name: String,
-    email: String,
-    passwordHash: String,
-    type: String
+mongoose.connect(process.env.MONGO_URI).then(async () => {
+    // Clear existing
+    await College.deleteMany({})
+    await Course.deleteMany({})
+    await Exam.deleteMany({})
+
+    // Colleges
+    const colleges = await College.insertMany([
+        { name: 'IIT Delhi', location: 'Delhi', rating: 9.8, fees: 250000, image: 'https://via.placeholder.com/300x200?text=IIT+Delhi' },
+        { name: 'IIM Ahmedabad', location: 'Gujarat', rating: 9.7, fees: 2300000, image: 'https://via.placeholder.com/300x200?text=IIM+Ahmedabad' }
+    ])
+
+    // Courses
+    await Course.insertMany([
+        { name: 'Computer Science', collegeId: colleges[0]._id, duration: '4 years', fees: 250000, description: 'B.Tech CS' },
+        { name: 'MBA', collegeId: colleges[1]._id, duration: '2 years', fees: 2300000, description: 'Master of Business Administration' }
+    ])
+
+    // Exams
+    await Exam.insertMany([
+        { name: 'JEE Main', date: new Date('2025-01-15'), collegeId: colleges[0]._id, description: 'Entrance for IITs' },
+        { name: 'CAT', date: new Date('2025-11-24'), collegeId: colleges[1]._id, description: 'Entrance for IIMs' }
+    ])
+
+    console.log('Sample data seeded!')
+    process.exit()
 })
-
-const User = mongoose.model('User', userSchema)
-
-mongoose.connect(MONGO_URI)
-    .then(async () => {
-        console.log('Connected')
-
-        const passwordHash = bcrypt.hashSync('admin', 8)
-        const admin = await User.findOneAndUpdate(
-            { email: 'admin@site' },
-            { name: 'Admin User', email: 'admin@site', passwordHash, type: 'admin' },
-            { upsert: true, new: true }
-        )
-
-        console.log('Admin created:', admin.email)
-        process.exit()
-    })
-    .catch(err => {
-        console.error(err)
-        process.exit(1)
-    })
