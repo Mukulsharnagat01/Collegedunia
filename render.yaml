@@ -1,0 +1,32 @@
+services:
+  # Backend
+  - type: web
+    name: collegedunia-backend
+    env: node
+    buildCommand: cd backend && npm ci
+    startCommand: cd backend && node index.js
+    envVars:
+      - key: MONGO_URI
+        value: mongodb+srv://admin:admin123@clusterone.mym38ni.mongodb.net/collegedunia?retryWrites=true&w=majority
+      - key: ACCESS_SECRET
+        value: superstrongsecret123
+      - key: REFRESH_SECRET
+        value: anotherstrongsecret456
+      - key: CLOUDINARY_CLOUD_NAME
+        value: your_cloud_name
+      - key: CLOUDINARY_API_KEY
+        value: your_api_key
+      - key: CLOUDINARY_API_SECRET
+        value: your_api_secret
+
+  # Frontend
+  - type: web
+    name: collegedunia-frontend
+    env: static
+    buildCommand: cd frontend && npm ci && npm run build
+    publishDir: frontend/dist
+
+webhooks:
+  - group: "PR Previews"
+    events:
+      - pull_request

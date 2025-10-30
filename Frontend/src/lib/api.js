@@ -4,9 +4,8 @@ import axios from 'axios'
 const BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4001/api/v1'
 
 const api = axios.create({
-    baseURL: BASE,
+    baseURL: import.meta.env.DEV ? '/api' : 'https://collegedunia-backend.onrender.com/api',
     withCredentials: true,
-    headers: { 'Content-Type': 'application/json' },
 })
 
 // Global token
