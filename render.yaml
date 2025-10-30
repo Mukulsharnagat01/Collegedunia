@@ -1,32 +1,32 @@
-# render.yaml
 services:
-  # Backend (Node.js)
+  # Backend
   - type: web
     name: collegedunia-backend
     env: node
-    region: oregon
-    plan: free
-    buildCommand: cd backend && npm install
+    buildCommand: cd backend && npm ci
     startCommand: cd backend && node index.js
     envVars:
-      NODE_VERSION: 22.20.0
-      PORT: 4001
-      MONGO_URI: "mongodb+srv://admin:admin123@clusterone.mym38ni.mongodb.net/collegedunia?retryWrites=true&w=majority"
-      CLOUDINARY_CLOUD_NAME: your_name
-      CLOUDINARY_API_KEY: "123456789"
-      CLOUDINARY_API_SECRET: your_secret
-      ACCESS_SECRET: superstrongsecret123
-      REFRESH_SECRET: anotherstrongsecret456
+      - key: MONGO_URI
+        value: mongodb+srv://admin:admin123@clusterone.mym38ni.mongodb.net/collegedunia?retryWrites=true&w=majority
+      - key: ACCESS_SECRET
+        value: superstrongsecret123
+      - key: REFRESH_SECRET
+        value: anotherstrongsecret456
+      - key: CLOUDINARY_CLOUD_NAME
+        value: your_cloud_name
+      - key: CLOUDINARY_API_KEY
+        value: your_api_key
+      - key: CLOUDINARY_API_SECRET
+        value: your_api_secret
 
-  # Frontend (React + Vite)
+  # Frontend
   - type: web
     name: collegedunia-frontend
     env: static
-    region: oregon
-    plan: free
-    buildCommand: cd frontend && npm install && npm run build
-    staticPublishPath: ./frontend/dist
-    routes:
-      - type: rewrite
-        source: /**
-        destination: /index.html
+    buildCommand: cd frontend && npm ci && npm run build
+    publishDir: frontend/dist
+
+webhooks:
+  - group: "PR Previews"
+    events:
+      - pull_request
