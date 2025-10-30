@@ -11,7 +11,7 @@ import { v2 as cloudinary } from 'cloudinary'
 dotenv.config()
 
 const app = express()
-const PORT = process.env.PORT || 4001
+const PORT = process.env.PORT || 4002
 app.listen(PORT, '0.0.0.0', () => {  // Add '0.0.0.0'
     console.log(`Server on port ${PORT}`)
 });
@@ -95,7 +95,7 @@ const Exam = mongoose.model('Exam', examSchema)
 
 // --- MIDDLEWARE ---
 app.use(cors({
-    origin: 'https://collegenest.onrender.com',
+    origin: process.env.VITE_FRONTEND_URL,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']

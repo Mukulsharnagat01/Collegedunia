@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const DEV = import.meta.env.DEV
-const PROD_BACKEND_URL = 'https://collegedunia-jz7f.onrender.com/api/v1'
+const PROD_BACKEND_URL = import.meta.env.VITE_API_BASE
 const DEV_PROXY_BASE = '/api/v1'  // For dev proxy
 
 const api = axios.create({
@@ -46,7 +46,7 @@ api.interceptors.response.use(
             originalRequest._retry = true
 
             try {
-                const refreshBase = DEV ? 'http://localhost:4001/api/v1' : PROD_BACKEND_URL
+                const refreshBase = DEV ? 'http://localhost:4002/api/v1' : PROD_BACKEND_URL
                 const resp = await axios.post(`${refreshBase}/auth/refresh`, {}, { withCredentials: true })
                 const newToken = resp.data?.accessToken
                 if (!newToken) throw new Error('No token')

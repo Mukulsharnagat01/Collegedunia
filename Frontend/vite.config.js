@@ -7,9 +7,10 @@ export default defineConfig({
   base: '/', // Important for Render
   server: {
     proxy: {
-      '/api/v1': {
-        target: 'http://localhost:4001',
+      '/api': {
+        target: 'http://localhost:4002', // Backend URL
         changeOrigin: true,
+        secure: false,
       },
     },
   },
