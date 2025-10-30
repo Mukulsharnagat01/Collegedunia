@@ -12,6 +12,9 @@ dotenv.config()
 
 const app = express()
 const PORT = process.env.PORT || 4001
+app.listen(PORT, '0.0.0.0', () => {  // Add '0.0.0.0'
+    console.log(`Server on port ${PORT}`)
+});
 
 // --- CLOUDINARY (Optional – for image upload) ---
 if (process.env.CLOUDINARY_CLOUD_NAME) {
@@ -92,7 +95,7 @@ const Exam = mongoose.model('Exam', examSchema)
 
 // --- MIDDLEWARE ---
 app.use(cors({
-    origin: 'http://localhost:5173',
+    origin: 'https://collegenest.onrender.com',
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
