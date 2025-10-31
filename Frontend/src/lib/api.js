@@ -4,6 +4,13 @@ const DEV = import.meta.env.DEV
 const PROD_BACKEND_URL = import.meta.env.VITE_API_BASE
 const DEV_PROXY_BASE = '/api/v1'  // For dev proxy
 
+const API = import.meta.env.VITE_BACKEND_URL
+
+// Example: Fetch colleges
+fetch(`${API}/api/v1/colleges`)
+    .then(res => res.json())
+    .then(data => console.log(data))
+
 const api = axios.create({
     baseURL: DEV ? DEV_PROXY_BASE : PROD_BACKEND_URL,
     withCredentials: true,
