@@ -8,10 +8,10 @@ import dotenv from 'dotenv'
 import multer from 'multer'
 import { v2 as cloudinary } from 'cloudinary'
 
-// dotenv.config()
+dotenv.config()
 
-// const app = express()
-// const PORT = process.env.PORT || 4002
+const app = express()
+const PORT = process.env.PORT || 4002
 
 // --- CLOUDINARY CONFIG ---
 if (process.env.CLOUDINARY_CLOUD_NAME) {
@@ -41,7 +41,6 @@ const { hashSync, compare } = bcrypt
 
 const ACCESS_SECRET = process.env.ACCESS_SECRET || 'dev-access-secret'
 const REFRESH_SECRET = process.env.REFRESH_SECRET || 'dev-refresh-secret'
-const refreshTokens = new Set()
 
 // --- SCHEMAS ---
 const userSchema = new mongoose.Schema({
@@ -77,225 +76,100 @@ const examSchema = new mongoose.Schema({
     description: String
 }, { timestamps: true })
 
+// --- MODELS ---
 const User = mongoose.model('User', userSchema)
 const College = mongoose.model('College', collegeSchema)
 const Course = mongoose.model('Course', courseSchema)
 const Exam = mongoose.model('Exam', examSchema)
 
-// --- JWT HELPERS ---
-const generateAccessToken = (user) => sign(
-    { sub: user._id, type: user.type, email: user.email, name: user.name },
-    ACCESS_SECRET,
-    { expiresIn: '15m' }
-)
-
-const generateRefreshToken = (user) => sign(
-    { sub: user._id },
-    REFRESH_SECRET,
-    { expiresIn: '7d' }
-)
-
 // --- AUTH MIDDLEWARE ---
-const authMiddleware = async (req, res, next) => {
+const authMiddleware = (req, res, next) => {
+    const auth = req.headers.authorization
+    if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'No token' })
+    const token = auth.split(' ')[1]
     try {
-        const token = req.headers.authorization?.split(' ')[1]
-        if (!token) return res.status(401).json({ error: 'Missing token' })
-
-        const payload = verify(token, ACCESS_SECRET)
-        const user = await User.findById(payload.sub).select('-passwordHash')
-        if (!user) throw new Error('User not found')
-        req.user = user
+        const payload = jwt.verify(token, ACCESS_SECRET)
+        req.user = payload
         next()
     } catch (e) {
-        return res.status(401).json({ error: 'Invalid or expired token' })
+        res.status(401).json({ error: 'Invalid token' })
     }
 }
 
 const adminOnly = (req, res, next) => {
-    if (req.user.type !== 'admin') {
-        return res.status(403).json({ error: 'Admin access required' })
-    }
+    if (req.user.type !== 'admin') return res.status(403).json({ error: 'Admin only' })
     next()
 }
 
-// --- AUTO-CREATE ADMIN ---
-mongoose.connection.once('open', async () => {
-    try {
-        const admin = await User.findOne({ email: 'admin@site' })
-        if (!admin) {
-            const passwordHash = hashSync('admin', 8)
-            await User.create({
-                name: 'Admin User',
-                email: 'admin@site',
-                passwordHash,
-                type: 'admin'
-            })
-            console.log('Admin created: admin@site / admin')
-        }
-    } catch (err) {
-        console.error('Admin creation failed:', err)
-    }
-})
-
-// --- MONGODB & SERVER START ---
-const MONGO_URI = process.env.MONGO_URI
-if (!MONGO_URI) {
-    console.error('MONGO_URI missing in .env – exiting')
-    process.exit(1)
-}
-
-mongoose.set('strictQuery', false)
-
-mongoose.connect(MONGO_URI, {
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
-})
-    .then(() => {
-        console.log('MongoDB Connected Successfully')
-
-        // Start server only after DB is connected
-        const server = app.listen(PORT, '0.0.0.0', () => {
-            console.log(`Server running on port ${PORT}`)
-        })
-
-        // Handle port in use
-        server.on('error', (err) => {
-            if (err.code === 'EADDRINUSE') {
-                console.error(`Port ${PORT} is already in use. Exiting...`)
-                process.exit(1)
-            } else {
-                console.error('Server error:', err)
-            }
-        })
-    })
-    .catch(err => {
-        console.error('MongoDB Connection Failed:', err.message)
-        process.exit(1)
-    })
-
-// --- ROUTES: AUTH ---
+// --- AUTH ROUTES ---
+// Signup
 app.post('/api/v1/auth/signup', async (req, res) => {
+    const { name, email, password, type } = req.body
     try {
-        const { name, email, password, phone, city, course } = req.body
-        if (!name || !email || !password) {
-            return res.status(400).json({ error: 'Name, email, and password required' })
-        }
-
-        const exists = await User.findOne({ email: email.toLowerCase() })
-        if (exists) return res.status(409).json({ error: 'Email already registered' })
-
-        const passwordHash = hashSync(password, 8)
-        const user = await User.create({
-            name,
-            email: email.toLowerCase(),
-            passwordHash,
-            phone,
-            city,
-            course
-        })
-
-        const accessToken = generateAccessToken(user)
-        const refreshToken = generateRefreshToken(user)
-        refreshTokens.add(refreshToken)
-
-        res.cookie('refreshToken', refreshToken, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 7 * 24 * 60 * 60 * 1000
-        })
-
-        res.status(201).json({
-            user: { id: user._id, email: user.email, name: user.name, type: user.type },
-            accessToken
-        })
+        const existing = await User.findOne({ email })
+        if (existing) return res.status(400).json({ error: 'Email exists' })
+        const passwordHash = hashSync(password, 10)
+        const user = await User.create({ name, email, passwordHash, type })
+        const accessToken = sign({ id: user._id, type: user.type }, ACCESS_SECRET, { expiresIn: '15m' })
+        const refreshToken = sign({ id: user._id }, REFRESH_SECRET, { expiresIn: '7d' })
+        res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: true, sameSite: 'strict' })
+        res.json({ user: { _id: user._id, name: user.name, email: user.email, type: user.type }, accessToken })
     } catch (err) {
-        console.error('Signup error:', err)
         res.status(500).json({ error: 'Signup failed' })
     }
 })
 
+// Login
 app.post('/api/v1/auth/login', async (req, res) => {
+    const { email, password } = req.body
     try {
-        const { email, password } = req.body
-        if (!email || !password) {
-            return res.status(400).json({ error: 'Email and password required' })
-        }
-
-        const user = await User.findOne({ email: email.toLowerCase() })
-        if (!user || !await compare(password, user.passwordHash)) {
-            return res.status(401).json({ error: 'Invalid credentials' })
-        }
-
-        const accessToken = generateAccessToken(user)
-        const refreshToken = generateRefreshToken(user)
-        refreshTokens.add(refreshToken)
-
-        res.cookie('refreshToken', refreshToken, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 7 * 24 * 60 * 60 * 1000
-        })
-
-        res.json({
-            user: { id: user._id, email: user.email, name: user.name, type: user.type },
-            accessToken
-        })
+        const user = await User.findOne({ email })
+        if (!user || !compare(password, user.passwordHash)) return res.status(401).json({ error: 'Invalid credentials' })
+        const accessToken = sign({ id: user._id, type: user.type }, ACCESS_SECRET, { expiresIn: '15m' })
+        const refreshToken = sign({ id: user._id }, REFRESH_SECRET, { expiresIn: '7d' })
+        res.cookie('refreshToken', refreshToken, { httpOnly: true, secure: true, sameSite: 'strict' })
+        res.json({ user: { _id: user._id, name: user.name, email: user.email, type: user.type }, accessToken })
     } catch (err) {
-        console.error('Login error:', err)
         res.status(500).json({ error: 'Login failed' })
     }
 })
 
+// Refresh Token
 app.post('/api/v1/auth/refresh', async (req, res) => {
+    const cookie = req.cookies.refreshToken
+    if (!cookie) return res.status(401).json({ error: 'No refresh token' })
     try {
-        const token = req.cookies.refreshToken
-        if (!token || !refreshTokens.has(token)) {
-            return res.status(401).json({ error: 'Invalid refresh token' })
-        }
-
-        const payload = verify(token, REFRESH_SECRET)
-        const user = await User.findById(payload.sub)
-        if (!user) throw new Error('User not found')
-
-        const accessToken = generateAccessToken(user)
+        const payload = jwt.verify(cookie, REFRESH_SECRET)
+        const user = await User.findById(payload.id)
+        if (!user) return res.status(401).json({ error: 'Invalid user' })
+        const accessToken = sign({ id: user._id, type: user.type }, ACCESS_SECRET, { expiresIn: '15m' })
         res.json({ accessToken })
     } catch (e) {
         res.status(401).json({ error: 'Invalid refresh token' })
     }
 })
 
-app.post('/api/v1/auth/logout', (req, res) => {
-    const token = req.cookies.refreshToken
-    if (token) refreshTokens.delete(token)
-    res.clearCookie('refreshToken')
-    res.json({ ok: true })
+// Logout
+app.post('/api/v1/auth/logout', authMiddleware, (req, res) => {
+    res.clearCookie('refreshToken', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict'
+    })
+    res.json({ message: 'Logged out successfully' })
 })
 
-// app.get('/api/v1/auth/me', authMiddleware, (req, res) => {
-//     res.json({
-//         id: req.user._id,
-//         email: req.user.email,
-//         name: req.user.name,
-//         type: req.user.type
-//     })
-// })
-
-// ADD THIS: GET /api/v1/auth/me - Missing route jo 404 de raha hai
+// Get Me (Missing route that was causing 404 in admin)
 app.get('/api/v1/auth/me', authMiddleware, async (req, res) => {
     try {
-        // req.user.id from token payload
-        const fullUser = await User.findById(req.user.id).select('-passwordHash -__v');
-        if (!fullUser) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-        res.json(fullUser);
+        const fullUser = await User.findById(req.user.id).select('-passwordHash -__v')
+        if (!fullUser) return res.status(404).json({ error: 'User not found' })
+        res.json(fullUser)
     } catch (error) {
-        console.error('Error fetching /auth/me:', error);
-        res.status(500).json({ error: 'Server error' });
+        console.error('Error fetching /auth/me:', error)
+        res.status(500).json({ error: 'Server error' })
     }
-});
+})
 
 // --- ADMIN: COLLEGES ---
 app.get('/api/v1/admin/colleges', authMiddleware, adminOnly, async (req, res) => {
@@ -303,50 +177,44 @@ app.get('/api/v1/admin/colleges', authMiddleware, adminOnly, async (req, res) =>
     res.json(colleges)
 })
 
-app.post('/api/v1/admin/colleges', upload.single('image'), authMiddleware, adminOnly, async (req, res) => {
+app.post('/api/v1/admin/colleges', authMiddleware, adminOnly, upload.single('image'), async (req, res) => {
     try {
-        let imageUrl = ''
+        let imageUrl
         if (req.file) {
             const result = await new Promise((resolve, reject) => {
-                const uploadStream = cloudinary.uploader.upload_stream(
-                    { folder: 'colleges' },
-                    (error, result) => error ? reject(error) : resolve(result)
-                )
-                uploadStream.end(req.file.buffer)
+                const stream = cloudinary.uploader.upload_stream({ resource_type: 'image' }, (err, res) => {
+                    if (err) reject(err)
+                    else resolve(res)
+                })
+                stream.end(req.file.buffer)
             })
             imageUrl = result.secure_url
         }
-
         const college = await College.create({ ...req.body, image: imageUrl })
         res.status(201).json(college)
     } catch (err) {
-        console.error('College create error:', err)
-        res.status(400).json({ error: err.message || 'Invalid data' })
+        res.status(500).json({ error: 'Failed to add college' })
     }
 })
 
-app.put('/api/v1/admin/colleges/:id', upload.single('image'), authMiddleware, adminOnly, async (req, res) => {
+app.put('/api/v1/admin/colleges/:id', authMiddleware, adminOnly, upload.single('image'), async (req, res) => {
     try {
-        let imageUrl = req.body.image
+        let imageUrl = req.body.image  // Keep existing if no new upload
         if (req.file) {
             const result = await new Promise((resolve, reject) => {
-                cloudinary.uploader.upload_stream(
-                    { folder: 'colleges' },
-                    (error, result) => error ? reject(error) : resolve(result)
-                ).end(req.file.buffer)
+                const stream = cloudinary.uploader.upload_stream({ resource_type: 'image' }, (err, res) => {
+                    if (err) reject(err)
+                    else resolve(res)
+                })
+                stream.end(req.file.buffer)
             })
             imageUrl = result.secure_url
         }
-
-        const college = await College.findByIdAndUpdate(
-            req.params.id,
-            { ...req.body, image: imageUrl },
-            { new: true, runValidators: true }
-        )
+        const college = await College.findByIdAndUpdate(req.params.id, { ...req.body, image: imageUrl }, { new: true })
         if (!college) return res.status(404).json({ error: 'Not found' })
         res.json(college)
     } catch (err) {
-        res.status(400).json({ error: 'Update failed' })
+        res.status(500).json({ error: 'Failed to update college' })
     }
 })
 
@@ -356,7 +224,7 @@ app.delete('/api/v1/admin/colleges/:id', authMiddleware, adminOnly, async (req, 
     res.json({ ok: true })
 })
 
-// --- ADMIN: COURSES, EXAMS (unchanged for brevity) ---
+// --- ADMIN: COURSES ---
 app.get('/api/v1/admin/courses', authMiddleware, adminOnly, async (req, res) => {
     const courses = await Course.find().populate('collegeId').sort({ createdAt: -1 })
     res.json(courses)
@@ -373,7 +241,7 @@ app.post('/api/v1/admin/courses', authMiddleware, adminOnly, async (req, res) =>
 })
 
 app.put('/api/v1/admin/courses/:id', authMiddleware, adminOnly, async (req, res) => {
-    const course = await Course.findByIdAndUpdate(req.params.id, req.body, { new: true })
+    const course = await Course.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true }).populate('collegeId')
     if (!course) return res.status(404).json({ error: 'Not found' })
     res.json(course)
 })
@@ -435,3 +303,10 @@ app.get('/api/v1/exams', async (req, res) => {
 app.get('/api/v1/health', (req, res) => {
     res.json({ status: 'OK', mongodb: mongoose.connection.readyState === 1 })
 })
+
+// --- CONNECT MONGO AND START SERVER ---
+mongoose.connect(process.env.MONGO_URI)
+    .then(() => {
+        app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
+    })
+    .catch(err => console.error('Mongo connection failed:', err))
