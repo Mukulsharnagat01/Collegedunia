@@ -8,7 +8,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:4002', // Backend URL
+        target: 'https://collegedunia-o5i9.onrender.com', // Backend URL
         changeOrigin: true,
         secure: false,
       },

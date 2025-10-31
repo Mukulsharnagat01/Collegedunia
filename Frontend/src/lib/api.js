@@ -46,7 +46,7 @@ api.interceptors.response.use(
             originalRequest._retry = true
 
             try {
-                const refreshBase = DEV ? 'http://localhost:4002/api/v1' : PROD_BACKEND_URL
+                const refreshBase = DEV ? 'https://collegedunia-o5i9.onrender.com/api/v1' : PROD_BACKEND_URL
                 const resp = await axios.post(`${refreshBase}/auth/refresh`, {}, { withCredentials: true })
                 const newToken = resp.data?.accessToken
                 if (!newToken) throw new Error('No token')
