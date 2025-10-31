@@ -273,14 +273,29 @@ app.post('/api/v1/auth/logout', (req, res) => {
     res.json({ ok: true })
 })
 
-app.get('/api/v1/auth/me', authMiddleware, (req, res) => {
-    res.json({
-        id: req.user._id,
-        email: req.user.email,
-        name: req.user.name,
-        type: req.user.type
-    })
-})
+// app.get('/api/v1/auth/me', authMiddleware, (req, res) => {
+//     res.json({
+//         id: req.user._id,
+//         email: req.user.email,
+//         name: req.user.name,
+//         type: req.user.type
+//     })
+// })
+
+// ADD THIS: GET /api/v1/auth/me - Missing route jo 404 de raha hai
+app.get('/api/v1/auth/me', authMiddleware, async (req, res) => {
+    try {
+        // req.user.id from token payload
+        const fullUser = await User.findById(req.user.id).select('-passwordHash -__v');
+        if (!fullUser) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        res.json(fullUser);
+    } catch (error) {
+        console.error('Error fetching /auth/me:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
 
 // --- ADMIN: COLLEGES ---
 app.get('/api/v1/admin/colleges', authMiddleware, adminOnly, async (req, res) => {
