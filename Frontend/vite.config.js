@@ -10,7 +10,8 @@ export default defineConfig({
       '/api': {
         target: 'https://collegedunia-o5i9.onrender.com', // Backend URL
         changeOrigin: true,
-        secure: false,
+        secure: true, // Required for HTTPS
+        rewrite: (path) => path, // Optional
       },
     },
   },
