@@ -12,11 +12,8 @@ dotenv.config()
 
 const app = express()
 const PORT = process.env.PORT || 4002
-app.listen(PORT, '0.0.0.0', () => {  // Add '0.0.0.0'
-    console.log(`Server on port ${PORT}`)
-});
 
-// --- CLOUDINARY (Optional – for image upload) ---
+// --- CLOUDINARY CONFIG ---
 if (process.env.CLOUDINARY_CLOUD_NAME) {
     cloudinary.config({
         cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -25,34 +22,26 @@ if (process.env.CLOUDINARY_CLOUD_NAME) {
     })
 }
 
-// --- MONGODB CONNECT ---
-const MONGO_URI = process.env.MONGO_URI
+// --- MIDDLEWARE ---
+app.use(cors({
+    origin: process.env.VITE_FRONTEND_URL,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}))
+app.use(json())
+app.use(cookieParser())
 
-if (!MONGO_URI) {
-    console.error('MONGO_URI missing in .env – exiting')
-    process.exit(1)
-}
+// Multer for image upload
+const storage = multer.memoryStorage()
+const upload = multer({ storage })
 
-mongoose.set('strictQuery', false)
+const { sign, verify } = jwt
+const { hashSync, compare } = bcrypt
 
-mongoose.connect(MONGO_URI, {
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
-})
-    .then(() => {
-        console.log('MongoDB Connected Successfully')
-        startServer()
-    })
-    .catch(err => {
-        console.error('MongoDB Connection Failed:', err.message)
-        process.exit(1)
-    })
-
-function startServer() {
-    app.listen(PORT, () => {
-        console.log(`Server running on http://localhost:${PORT}`)
-    })
-}
+const ACCESS_SECRET = process.env.ACCESS_SECRET || 'dev-access-secret'
+const REFRESH_SECRET = process.env.REFRESH_SECRET || 'dev-refresh-secret'
+const refreshTokens = new Set()
 
 // --- SCHEMAS ---
 const userSchema = new mongoose.Schema({
@@ -93,28 +82,6 @@ const College = mongoose.model('College', collegeSchema)
 const Course = mongoose.model('Course', courseSchema)
 const Exam = mongoose.model('Exam', examSchema)
 
-// --- MIDDLEWARE ---
-app.use(cors({
-    origin: process.env.VITE_FRONTEND_URL,
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-}))
-app.use(json())
-app.use(cookieParser())
-
-// Multer for image upload
-const storage = multer.memoryStorage()
-const upload = multer({ storage })
-
-const { sign, verify } = jwt
-const { hashSync, compare } = bcrypt
-
-const ACCESS_SECRET = process.env.ACCESS_SECRET || 'dev-access-secret'
-const REFRESH_SECRET = process.env.REFRESH_SECRET || 'dev-refresh-secret'
-
-const refreshTokens = new Set()
-
 // --- JWT HELPERS ---
 const generateAccessToken = (user) => sign(
     { sub: user._id, type: user.type, email: user.email, name: user.name },
@@ -151,20 +118,60 @@ const adminOnly = (req, res, next) => {
     next()
 }
 
-// --- AUTO-CREATE ADMIN (After Connection) ---
+// --- AUTO-CREATE ADMIN ---
 mongoose.connection.once('open', async () => {
-    const admin = await User.findOne({ email: 'admin@site' })
-    if (!admin) {
-        const passwordHash = hashSync('admin', 8)
-        await User.create({
-            name: 'Admin User',
-            email: 'admin@site',
-            passwordHash,
-            type: 'admin'
-        })
-        console.log('Admin created: admin@site / admin')
+    try {
+        const admin = await User.findOne({ email: 'admin@site' })
+        if (!admin) {
+            const passwordHash = hashSync('admin', 8)
+            await User.create({
+                name: 'Admin User',
+                email: 'admin@site',
+                passwordHash,
+                type: 'admin'
+            })
+            console.log('Admin created: admin@site / admin')
+        }
+    } catch (err) {
+        console.error('Admin creation failed:', err)
     }
 })
+
+// --- MONGODB & SERVER START ---
+const MONGO_URI = process.env.MONGO_URI
+if (!MONGO_URI) {
+    console.error('MONGO_URI missing in .env – exiting')
+    process.exit(1)
+}
+
+mongoose.set('strictQuery', false)
+
+mongoose.connect(MONGO_URI, {
+    serverSelectionTimeoutMS: 5000,
+    socketTimeoutMS: 45000,
+})
+    .then(() => {
+        console.log('MongoDB Connected Successfully')
+
+        // Start server only after DB is connected
+        const server = app.listen(PORT, '0.0.0.0', () => {
+            console.log(`Server running on port ${PORT}`)
+        })
+
+        // Handle port in use
+        server.on('error', (err) => {
+            if (err.code === 'EADDRINUSE') {
+                console.error(`Port ${PORT} is already in use. Exiting...`)
+                process.exit(1)
+            } else {
+                console.error('Server error:', err)
+            }
+        })
+    })
+    .catch(err => {
+        console.error('MongoDB Connection Failed:', err.message)
+        process.exit(1)
+    })
 
 // --- ROUTES: AUTH ---
 app.post('/api/v1/auth/signup', async (req, res) => {
@@ -193,18 +200,13 @@ app.post('/api/v1/auth/signup', async (req, res) => {
 
         res.cookie('refreshToken', refreshToken, {
             httpOnly: true,
-            secure: false,
+            secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
             maxAge: 7 * 24 * 60 * 60 * 1000
         })
 
         res.status(201).json({
-            user: {
-                id: user._id,
-                email: user.email,
-                name: user.name,
-                type: user.type
-            },
+            user: { id: user._id, email: user.email, name: user.name, type: user.type },
             accessToken
         })
     } catch (err) {
@@ -221,10 +223,9 @@ app.post('/api/v1/auth/login', async (req, res) => {
         }
 
         const user = await User.findOne({ email: email.toLowerCase() })
-        if (!user) return res.status(401).json({ error: 'Invalid credentials' })
-
-        const valid = await compare(password, user.passwordHash)
-        if (!valid) return res.status(401).json({ error: 'Invalid credentials' })
+        if (!user || !await compare(password, user.passwordHash)) {
+            return res.status(401).json({ error: 'Invalid credentials' })
+        }
 
         const accessToken = generateAccessToken(user)
         const refreshToken = generateRefreshToken(user)
@@ -232,18 +233,13 @@ app.post('/api/v1/auth/login', async (req, res) => {
 
         res.cookie('refreshToken', refreshToken, {
             httpOnly: true,
-            secure: false,
+            secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
             maxAge: 7 * 24 * 60 * 60 * 1000
         })
 
         res.json({
-            user: {
-                id: user._id,
-                email: user.email,
-                name: user.name,
-                type: user.type
-            },
+            user: { id: user._id, email: user.email, name: user.name, type: user.type },
             accessToken
         })
     } catch (err) {
@@ -266,67 +262,51 @@ app.post('/api/v1/auth/refresh', async (req, res) => {
         const accessToken = generateAccessToken(user)
         res.json({ accessToken })
     } catch (e) {
-        console.error('Refresh error:', e)
         res.status(401).json({ error: 'Invalid refresh token' })
     }
 })
 
 app.post('/api/v1/auth/logout', (req, res) => {
-    try {
-        const token = req.cookies.refreshToken
-        if (token) refreshTokens.delete(token)
-        res.clearCookie('refreshToken')
-        res.json({ ok: true })
-    } catch (err) {
-        res.status(500).json({ error: 'Logout failed' })
-    }
+    const token = req.cookies.refreshToken
+    if (token) refreshTokens.delete(token)
+    res.clearCookie('refreshToken')
+    res.json({ ok: true })
 })
 
-app.get('/api/v1/auth/me', authMiddleware, async (req, res) => {
-    try {
-        res.json({
-            id: req.user._id,
-            email: req.user.email,
-            name: req.user.name,
-            type: req.user.type
-        })
-    } catch (err) {
-        res.status(500).json({ error: 'Failed to get user' })
-    }
+app.get('/api/v1/auth/me', authMiddleware, (req, res) => {
+    res.json({
+        id: req.user._id,
+        email: req.user.email,
+        name: req.user.name,
+        type: req.user.type
+    })
 })
 
-// --- ADMIN CRUD: COLLEGES ---
+// --- ADMIN: COLLEGES ---
 app.get('/api/v1/admin/colleges', authMiddleware, adminOnly, async (req, res) => {
-    try {
-        const colleges = await College.find().sort({ createdAt: -1 })
-        res.json(colleges)
-    } catch (err) {
-        console.error('Colleges GET error:', err)
-        res.status(500).json({ error: 'Failed to fetch colleges' })
-    }
+    const colleges = await College.find().sort({ createdAt: -1 })
+    res.json(colleges)
 })
 
 app.post('/api/v1/admin/colleges', upload.single('image'), authMiddleware, adminOnly, async (req, res) => {
     try {
         let imageUrl = ''
         if (req.file) {
-            const result = await cloudinary.uploader.upload_stream(
-                { folder: 'colleges' },
-                (error, result) => {
-                    if (error) throw error
-                    imageUrl = result.secure_url
-                }
-            ).end(req.file.buffer)
+            const result = await new Promise((resolve, reject) => {
+                const uploadStream = cloudinary.uploader.upload_stream(
+                    { folder: 'colleges' },
+                    (error, result) => error ? reject(error) : resolve(result)
+                )
+                uploadStream.end(req.file.buffer)
+            })
+            imageUrl = result.secure_url
         }
 
-        const college = await College.create({
-            ...req.body,
-            image: imageUrl
-        })
+        const college = await College.create({ ...req.body, image: imageUrl })
         res.status(201).json(college)
     } catch (err) {
-        console.error('Colleges POST error:', err)
-        res.status(400).json({ error: 'Invalid data' })
+        console.error('College create error:', err)
+        res.status(400).json({ error: err.message || 'Invalid data' })
     }
 })
 
@@ -334,13 +314,13 @@ app.put('/api/v1/admin/colleges/:id', upload.single('image'), authMiddleware, ad
     try {
         let imageUrl = req.body.image
         if (req.file) {
-            const result = await cloudinary.uploader.upload_stream(
-                { folder: 'colleges' },
-                (error, result) => {
-                    if (error) throw error
-                    imageUrl = result.secure_url
-                }
-            ).end(req.file.buffer)
+            const result = await new Promise((resolve, reject) => {
+                cloudinary.uploader.upload_stream(
+                    { folder: 'colleges' },
+                    (error, result) => error ? reject(error) : resolve(result)
+                ).end(req.file.buffer)
+            })
+            imageUrl = result.secure_url
         }
 
         const college = await College.findByIdAndUpdate(
@@ -351,173 +331,92 @@ app.put('/api/v1/admin/colleges/:id', upload.single('image'), authMiddleware, ad
         if (!college) return res.status(404).json({ error: 'Not found' })
         res.json(college)
     } catch (err) {
-        console.error('Colleges PUT error:', err)
         res.status(400).json({ error: 'Update failed' })
     }
 })
 
 app.delete('/api/v1/admin/colleges/:id', authMiddleware, adminOnly, async (req, res) => {
-    try {
-        const result = await College.findByIdAndDelete(req.params.id)
-        if (!result) return res.status(404).json({ error: 'Not found' })
-        res.json({ ok: true })
-    } catch (err) {
-        console.error('Colleges DELETE error:', err)
-        res.status(500).json({ error: 'Delete failed' })
-    }
+    const result = await College.findByIdAndDelete(req.params.id)
+    if (!result) return res.status(404).json({ error: 'Not found' })
+    res.json({ ok: true })
 })
 
-// --- ADMIN CRUD: COURSES ---
+// --- ADMIN: COURSES, EXAMS (unchanged for brevity) ---
 app.get('/api/v1/admin/courses', authMiddleware, adminOnly, async (req, res) => {
-    try {
-        const courses = await Course.find().populate('collegeId').sort({ createdAt: -1 })
-        res.json(courses)
-    } catch (err) {
-        console.error('Courses GET error:', err)
-        res.status(500).json({ error: 'Failed to fetch courses' })
-    }
+    const courses = await Course.find().populate('collegeId').sort({ createdAt: -1 })
+    res.json(courses)
 })
 
 app.post('/api/v1/admin/courses', authMiddleware, adminOnly, async (req, res) => {
-    try {
-        const { name, collegeId, duration, fees, description } = req.body
-        if (!name || !collegeId) {
-            return res.status(400).json({ error: 'Name and collegeId required' })
-        }
-        if (!mongoose.Types.ObjectId.isValid(collegeId)) {
-            return res.status(400).json({ error: 'Invalid collegeId' })
-        }
-
-        const course = await Course.create({ name, collegeId, duration, fees, description })
-        const populated = await Course.findById(course._id).populate('collegeId')
-        res.status(201).json(populated)
-    } catch (err) {
-        res.status(400).json({ error: err.message })
+    const { name, collegeId } = req.body
+    if (!name || !collegeId || !mongoose.Types.ObjectId.isValid(collegeId)) {
+        return res.status(400).json({ error: 'Valid name and collegeId required' })
     }
+    const course = await Course.create(req.body)
+    const populated = await Course.findById(course._id).populate('collegeId')
+    res.status(201).json(populated)
 })
 
 app.put('/api/v1/admin/courses/:id', authMiddleware, adminOnly, async (req, res) => {
-    try {
-        const course = await Course.findByIdAndUpdate(req.params.id, req.body, { new: true })
-        if (!course) return res.status(404).json({ error: 'Not found' })
-        res.json(course)
-    } catch (err) {
-        console.error('Courses PUT error:', err)
-        res.status(400).json({ error: 'Update failed' })
-    }
+    const course = await Course.findByIdAndUpdate(req.params.id, req.body, { new: true })
+    if (!course) return res.status(404).json({ error: 'Not found' })
+    res.json(course)
 })
 
 app.delete('/api/v1/admin/courses/:id', authMiddleware, adminOnly, async (req, res) => {
-    try {
-        const result = await Course.findByIdAndDelete(req.params.id)
-        if (!result) return res.status(404).json({ error: 'Not found' })
-        res.json({ ok: true })
-    } catch (err) {
-        console.error('Courses DELETE error:', err)
-        res.status(500).json({ error: 'Delete failed' })
-    }
+    const result = await Course.findByIdAndDelete(req.params.id)
+    if (!result) return res.status(404).json({ error: 'Not found' })
+    res.json({ ok: true })
 })
 
-// --- ADMIN CRUD: EXAMS ---
+// --- ADMIN: EXAMS ---
 app.get('/api/v1/admin/exams', authMiddleware, adminOnly, async (req, res) => {
-    try {
-        const exams = await Exam.find().populate('collegeId').sort({ date: -1 })
-        res.json(exams)
-    } catch (err) {
-        console.error('Exams GET error:', err)
-        res.status(500).json({ error: 'Failed to fetch exams' })
-    }
+    const exams = await Exam.find().populate('collegeId').sort({ date: -1 })
+    res.json(exams)
 })
 
-// --- ADMIN CRUD: EXAMS (FIXED) ---
 app.post('/api/v1/admin/exams', authMiddleware, adminOnly, async (req, res) => {
-    try {
-        const { name, date, collegeId, description } = req.body
-
-        if (!name || !date || !collegeId) {
-            return res.status(400).json({ error: 'Name, date, and collegeId are required' })
-        }
-
-        // Validate ObjectId
-        if (!mongoose.Types.ObjectId.isValid(collegeId)) {
-            return res.status(400).json({ error: 'Invalid collegeId format' })
-        }
-
-        const exam = await Exam.create({
-            name,
-            date: new Date(date),
-            collegeId,
-            description
-        })
-
-        const populated = await Exam.findById(exam._id).populate('collegeId')
-        res.status(201).json(populated)
-    } catch (err) {
-        console.error('Exam create error:', err)
-        res.status(400).json({ error: err.message || 'Failed to create exam' })
+    const { name, date, collegeId } = req.body
+    if (!name || !date || !collegeId || !mongoose.Types.ObjectId.isValid(collegeId)) {
+        return res.status(400).json({ error: 'Valid name, date, and collegeId required' })
     }
+    const exam = await Exam.create({ ...req.body, date: new Date(date) })
+    const populated = await Exam.findById(exam._id).populate('collegeId')
+    res.status(201).json(populated)
 })
 
 app.put('/api/v1/admin/exams/:id', authMiddleware, adminOnly, async (req, res) => {
-    try {
-        const { collegeId } = req.body
-        if (collegeId && !mongoose.Types.ObjectId.isValid(collegeId)) {
-            return res.status(400).json({ error: 'Invalid collegeId format' })
-        }
-
-        const exam = await Exam.findByIdAndUpdate(
-            req.params.id,
-            { ...req.body, date: req.body.date ? new Date(req.body.date) : undefined },
-            { new: true, runValidators: true }
-        ).populate('collegeId')
-
-        if (!exam) return res.status(404).json({ error: 'Exam not found' })
-        res.json(exam)
-    } catch (err) {
-        res.status(400).json({ error: err.message || 'Update failed' })
-    }
+    const exam = await Exam.findByIdAndUpdate(
+        req.params.id,
+        { ...req.body, date: req.body.date ? new Date(req.body.date) : undefined },
+        { new: true, runValidators: true }
+    ).populate('collegeId')
+    if (!exam) return res.status(404).json({ error: 'Not found' })
+    res.json(exam)
 })
 
 app.delete('/api/v1/admin/exams/:id', authMiddleware, adminOnly, async (req, res) => {
-    try {
-        const result = await Exam.findByIdAndDelete(req.params.id)
-        if (!result) return res.status(404).json({ error: 'Not found' })
-        res.json({ ok: true })
-    } catch (err) {
-        console.error('Exams DELETE error:', err)
-        res.status(500).json({ error: 'Delete failed' })
-    }
+    const result = await Exam.findByIdAndDelete(req.params.id)
+    if (!result) return res.status(404).json({ error: 'Not found' })
+    res.json({ ok: true })
 })
 
 // --- PUBLIC ROUTES ---
 app.get('/api/v1/colleges', async (req, res) => {
-    try {
-        const colleges = await College.find().sort({ rating: -1 })
-        res.json(colleges)
-    } catch (err) {
-        res.status(500).json({ error: 'Failed to fetch colleges' })
-    }
+    const colleges = await College.find().sort({ rating: -1 })
+    res.json(colleges)
 })
 
 app.get('/api/v1/courses', async (req, res) => {
-    try {
-        const courses = await Course.find().populate('collegeId')
-        res.json(courses)
-    } catch (err) {
-        res.status(500).json({ error: 'Failed to fetch courses' })
-    }
+    const courses = await Course.find().populate('collegeId')
+    res.json(courses)
 })
 
 app.get('/api/v1/exams', async (req, res) => {
-    try {
-        const exams = await Exam.find().populate('collegeId').sort({ date: 1 })
-        res.json(exams)
-    } catch (err) {
-        res.status(500).json({ error: 'Failed to fetch exams' })
-    }
+    const exams = await Exam.find().populate('collegeId').sort({ date: 1 })
+    res.json(exams)
 })
 
-// --- HEALTH CHECK ---
 app.get('/api/v1/health', (req, res) => {
     res.json({ status: 'OK', mongodb: mongoose.connection.readyState === 1 })
 })
