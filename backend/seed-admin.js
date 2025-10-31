@@ -112,13 +112,13 @@ mongoose.connect(process.env.MONGO_URI).then(async () => {
     await Exam.insertMany([
         {
             name: 'JEE Main',
-            date: new Date('2025-01-15'),
+            date: new Date('2026-01-22'),  // Updated to tentative 2026 Session 1 midpoint
             collegeId: colleges[0]._id,
             description: 'Entrance for IITs'
         },
         {
             name: 'CAT',
-            date: new Date('2025-11-24'),
+            date: new Date('2025-11-30'),  // Updated to actual 2025 date
             collegeId: colleges[1]._id,
             description: 'Entrance for IIMs'
         }
