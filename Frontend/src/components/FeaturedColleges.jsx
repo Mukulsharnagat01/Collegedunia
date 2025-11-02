@@ -10,7 +10,7 @@ export default function FeaturedColleges() {
     }, [])
 
     return (
-        <section className="py-16 bg-gray-50">
+        <section id="colleges" className="py-16 bg-gray-50">
             <div className="max-w-7xl mx-auto px-4">
                 <h2 className="text-3xl font-bold text-center mb-12">Featured Colleges</h2>
                 <div className="grid md:grid-cols-4 gap-8">
