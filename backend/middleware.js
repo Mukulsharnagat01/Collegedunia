@@ -1,8 +1,8 @@
 // backend/middleware.js
 import jwt from 'jsonwebtoken'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key'
-const REFRESH_SECRET = process.env.REFRESH_SECRET || 'super-secret-refresh-key'
+const JWT_SECRET = process.env.JWT_SECRET
+const REFRESH_SECRET = process.env.REFRESH_SECRET
 
 export const authMiddleware = (req, res, next) => {
     const auth = req.headers.authorization

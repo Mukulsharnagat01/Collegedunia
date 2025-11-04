@@ -81,10 +81,10 @@ export default function App() {
     }
 
     // LOGOUT
-    const logout = () => {
+    const logout = async () => {
+        await apiLogout() // from api.js
         setUser(null)
         setLoggedIn(false)
-        localStorage.removeItem('collegedunia_user')
     }
 
     const location = useLocation()

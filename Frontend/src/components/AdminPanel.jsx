@@ -27,7 +27,7 @@ export default function AdminPanel() {
 
     // Fetch colleges for dropdown
     useEffect(() => {
-        api.get('/admin/colleges')
+        api.get('/api/v1/admin/colleges')
             .then(res => setColleges(Array.isArray(res.data) ? res.data : []))
             .catch(() => setColleges([]))
     }, [])
@@ -74,6 +74,53 @@ export default function AdminPanel() {
             setImagePreviewUrl('')
         }
     }, [imageFile])
+
+
+    const handleSubmit = async (e) => {
+        e.preventDefault()
+        setLoading(true)
+
+        try {
+            let imageUrl = editingData.image
+
+            if (imageFile) {
+                const formData = new FormData()
+                formData.append('file', imageFile)
+                formData.append('upload_preset', 'collegedunia')
+
+                const uploadRes = await fetch(
+                    `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload`,
+                    { method: 'POST', body: formData }
+                )
+                const uploadData = await uploadRes.json()
+                imageUrl = uploadData.secure_url
+            }
+
+            const payload = {
+                ...formData,
+                image: imageUrl,
+                ...(activeTab !== 'colleges' && { collegeId: formData.collegeId })
+            }
+
+            if (editing) {
+                await api.put(`/api/v1/admin/${activeTab}/${editing}`, payload)
+            } else {
+                await api.post(`/api/v1/admin/${activeTab}`, payload)
+            }
+
+            setShowForm(false)
+            setFormData({})
+            setImageFile(null)
+            setImagePreviewUrl('')
+            // Refetch
+            const resp = await api.get(`/api/v1/admin/${activeTab}`)
+            setData(resp.data)
+        } catch (err) {
+            alert(err?.response?.data?.error || 'Operation failed')
+        } finally {
+            setLoading(false)
+        }
+    }
 
     // Save (Add or Edit)
     const handleSave = async (item) => {
@@ -414,4 +461,55 @@ export default function AdminPanel() {
             </div>
         </div>
     )
+}
+
+
+
+
+
+
+const handleSubmit = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+
+    try {
+        let imageUrl = editingData.image
+
+        if (imageFile) {
+            const formData = new FormData()
+            formData.append('file', imageFile)
+            formData.append('upload_preset', 'collegedunia')
+
+            const uploadRes = await fetch(
+                `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload`,
+                { method: 'POST', body: formData }
+            )
+            const uploadData = await uploadRes.json()
+            imageUrl = uploadData.secure_url
+        }
+
+        const payload = {
+            ...formData,
+            image: imageUrl,
+            ...(activeTab !== 'colleges' && { collegeId: formData.collegeId })
+        }
+
+        if (editing) {
+            await api.put(`/api/v1/admin/${activeTab}/${editing}`, payload)
+        } else {
+            await api.post(`/api/v1/admin/${activeTab}`, payload)
+        }
+
+        setShowForm(false)
+        setFormData({})
+        setImageFile(null)
+        setImagePreviewUrl('')
+        // Refetch
+        const resp = await api.get(`/api/v1/admin/${activeTab}`)
+        setData(resp.data)
+    } catch (err) {
+        alert(err?.response?.data?.error || 'Operation failed')
+    } finally {
+        setLoading(false)
+    }
 }
