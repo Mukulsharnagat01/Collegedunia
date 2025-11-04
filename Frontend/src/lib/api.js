@@ -4,7 +4,7 @@ const DEV = import.meta.env.DEV
 const PROD_BACKEND_URL = import.meta.env.VITE_API_BASE
 const DEV_PROXY_BASE = '/api/v1'  // For dev proxy
 
-const API = import.meta.env.VITE_BACKEND_URL
+const API = import.meta.env.VITE_API_BASE || '/api/v1'
 
 // Example: Fetch colleges
 fetch(`${API}/api/v1/colleges`)
